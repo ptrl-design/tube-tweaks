@@ -299,6 +299,16 @@
     else if (menu) menu.querySelector('tp-yt-paper-button, #trigger, #label')?.click();
   });
 
+  // ---------- Comments load before they are scrolled to ----------
+  // YouTube fetches comments only once their placeholder (a continuation item) scrolls into view,
+  // so they would be sorted and have copies hidden in front of the user. content.js asks for them
+  // as soon as the placeholder exists; firing the placeholder's own trigger loads them off screen.
+  document.addEventListener('tt-load-comments', () => {
+    const el = document.querySelector('ytd-comments ytd-item-section-renderer #contents > ytd-continuation-item-renderer');
+    if (!el || el.parentElement.querySelector(':scope > ytd-comment-thread-renderer')) return;
+    try { if (typeof el.triggerContinuation === 'function') el.triggerContinuation(); } catch {}
+  });
+
   document.addEventListener('tt-request-subs', () => {
     if (!subsPromise) subsPromise = fetchSubscriptions().finally(() => setTimeout(() => { subsPromise = null; }, 60000));
     subsPromise.then(subs => {

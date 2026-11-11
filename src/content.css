@@ -134,6 +134,11 @@ html[tt-popular-active] ytd-comments ytd-item-section-renderer #contents {
   display: flex !important;
   flex-direction: column !important;
 }
+/* Not ranked yet (YouTube hasn't drawn its like count): kept out of sight at the end of the list. */
+html[tt-popular-active] ytd-comments ytd-item-section-renderer #contents > ytd-comment-thread-renderer:not([tt-ranked]) {
+  order: 99999;
+  visibility: hidden;
+}
 
 /* ---------- 2K badge for 1440p ---------- */
 /* YouTube draws its HD/4K/8K badge as ::after on the gear (13x9, #e1002d, 1px radius) with

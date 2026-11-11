@@ -121,6 +121,22 @@ body{margin:0} #player-container-outer{height:400px} #below{height:3000px}
   ] } } };
   // Like YouTube: the starting layout comes from ytcfg; the size button toggles it.
   // Narrow window: single column, YouTube hides the theater button and ignores the start mode.
+  // Like YouTube: with ?lazy the comments aren't in the page yet, only their placeholder, which
+  // fetches them when its trigger fires (YouTube fires it once it scrolls into view). They are
+  // drawn in two chunks, a frame apart.
+  if (location.search.includes('lazy')) {
+    const cont = document.getElementById('cont');
+    const stash = [...cont.parentElement.children].filter(e => e !== cont);
+    stash.forEach(e => e.remove());
+    window.loadCalls = 0;
+    cont.triggerContinuation = () => {
+      window.loadCalls++;
+      setTimeout(() => {
+        stash.slice(0, 3).forEach(e => cont.before(e));
+        requestAnimationFrame(() => stash.slice(3).forEach(e => cont.before(e)));
+      }, 100);
+    };
+  }
   const narrow = location.search.includes('narrow');
   if (narrow) document.querySelector('.ytp-size-button').style.display = 'none';
   else if (ytcfg.get('START_IN_THEATER_MODE')) flexy.setAttribute('theater', '');

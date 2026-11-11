@@ -337,6 +337,20 @@
     }
   }
 
+  // Comments are loaded as soon as the watch page has a place for them, not when the user scrolls
+  // down, so they are already sorted (and copies hidden) by the time they come into view. Only
+  // when something here would change them; once per placeholder and video.
+  const commentsAsked = new WeakMap();
+  function preloadComments() {
+    if (!isWatch() || (S.defaultSort === 'top' && !S.hideCopies)) return;
+    const el = document.querySelector('ytd-comments ytd-item-section-renderer #contents > ytd-continuation-item-renderer');
+    if (!el || el.parentElement.querySelector(':scope > ytd-comment-thread-renderer')) return;
+    const vid = videoId();
+    if (commentsAsked.get(el) === vid) return;
+    commentsAsked.set(el, vid);
+    document.dispatchEvent(new CustomEvent('tt-load-comments'));
+  }
+
   function likeCount(thread) {
     const el = thread.querySelector('#vote-count-middle');
     if (!el) return 0;
@@ -357,14 +371,24 @@
     return !!last && sig.every((v, i) => v === last[i]);
   }
 
+  // A thread YouTube hasn't drawn yet has no like count to rank it by. It stays hidden at the end
+  // (CSS) until it has one, and the next pass ranks it even if the list looks the same.
+  let sortIncomplete = false;
   function sortComments() {
     if (!popularActive || !isWatch()) return;
-    if (commentsUnchanged('sort')) return;
+    if (commentsUnchanged('sort') && !sortIncomplete) return;
     const contents = document.querySelector('ytd-comments ytd-item-section-renderer #contents');
     if (!contents) return;
+    sortIncomplete = false;
     const threads = [];
     [...contents.children].forEach((el, i) => {
       if (el.tagName === 'YTD-COMMENT-THREAD-RENDERER') {
+        if (!el.querySelector('#vote-count-middle')) {
+          sortIncomplete = true;
+          if (el.hasAttribute('tt-ranked')) { el.removeAttribute('tt-ranked'); el.style.order = ''; }
+          return;
+        }
+        if (!el.hasAttribute('tt-ranked')) el.setAttribute('tt-ranked', '');
         const pinned = !!el.querySelector('#pinned-comment-badge ytd-pinned-comment-badge-renderer');
         threads.push({ el, i, likes: pinned ? Infinity : likeCount(el) });
       } else {
@@ -617,6 +641,7 @@
     if (!ready) return;
     enforceCinema();
     filterHome();
+    preloadComments();
     setupComments();
     sortComments();
     markCopies();
@@ -633,9 +658,16 @@
     const el = node.nodeType === 1 ? node : node.parentElement;
     return !!el && !!el.closest('.html5-video-player') && !el.closest('.ytp-settings-menu');
   };
+  // New comments are sorted and checked for copies right away, before the browser draws them.
+  const inCommentList = node => node.id === 'contents' && node.parentElement?.tagName === 'YTD-ITEM-SECTION-RENDERER' && !!node.closest('ytd-comments');
   new MutationObserver(records => {
     if (cinemaDone !== cinemaVid || cinemaVid !== videoId()) enforceCinema(); // cheap until theater is reached
     if (records.every(r => r.type === 'childList' && inPlayerChrome(r.target))) return;
+    if (ready && isWatch() && records.some(r => r.type === 'childList' && inCommentList(r.target))) {
+      setupComments();
+      sortComments();
+      markCopies();
+    }
     schedule();
   }).observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['theater'] });
 

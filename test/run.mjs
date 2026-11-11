@@ -303,6 +303,55 @@ await w.reload();
 await w.waitForTimeout(1500);
 check('Copied comments off: nothing marked, no Newest-order requests', await w.evaluate(() => !document.querySelector('[tt-copy]')) && nextCalls.length === callsBefore, String(nextCalls.length - callsBefore));
 
+// Comments load as soon as the watch page opens, not when scrolled to, and arrive sorted.
+const l = await ctx.newPage();
+l.on('pageerror', e => errors.push(e.message));
+await l.goto('https://www.youtube.com/watch?v=abc&lazy=1');
+await l.waitForTimeout(800);
+const visibleOrder = page => page.evaluate(() => [...document.querySelectorAll('ytd-comments #contents > ytd-comment-thread-renderer')]
+  .filter(e => getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden')
+  .sort((a, b) => (+getComputedStyle(a).order) - (+getComputedStyle(b).order)).map(e => e.id));
+check('Comments load before scrolling to them', await l.evaluate(() => window.loadCalls === 1 && window.scrollY === 0), String(await l.evaluate(() => window.loadCalls)));
+const lazyOrder = await visibleOrder(l);
+check('Comments loaded early are sorted by likes', lazyOrder.slice(0, 3).join() === 'copy,real2,c1200' && lazyOrder.length === 12, JSON.stringify(lazyOrder));
+// New comments are ranked before the next frame is drawn, without waiting for the next pass.
+const ranked = await l.evaluate(async () => {
+  const t = document.getElementById('c5').cloneNode(true);
+  t.id = 'hot';
+  ['style', 'tt-ranked', 'tt-copy'].forEach(a => t.removeAttribute(a));
+  t.querySelector('#vote-count-middle').textContent = '5K';
+  t.querySelector('#published-time-text a').setAttribute('href', '/watch?v=abc&lc=hot');
+  t.querySelector('#content-text span').textContent = 'A brand new comment';
+  document.getElementById('cont').before(t);
+  await new Promise(r => setTimeout(r, 0)); // well before the next 200 ms pass
+  return t.style.order;
+});
+check('A new comment is ranked before it is drawn', ranked === '0', ranked);
+// A comment YouTube hasn't drawn yet (no like count) stays out of sight until it can be ranked.
+const pending = await l.evaluate(async () => {
+  const t = document.getElementById('c5').cloneNode(true);
+  t.id = 'undrawn';
+  ['style', 'tt-ranked', 'tt-copy'].forEach(a => t.removeAttribute(a));
+  t.querySelector('#vote-count-middle').remove();
+  t.querySelector('#published-time-text a').setAttribute('href', '/watch?v=abc&lc=undrawn');
+  t.querySelector('#content-text span').textContent = 'Not drawn yet';
+  document.getElementById('cont').before(t);
+  await new Promise(requestAnimationFrame);
+  const cs = getComputedStyle(t);
+  return [cs.visibility, cs.order];
+});
+await l.evaluate(() => { const v = document.createElement('span'); v.id = 'vote-count-middle'; v.textContent = '3K'; document.querySelector('#undrawn #comment').append(v); });
+await l.waitForTimeout(400);
+const afterDraw = await visibleOrder(l);
+check('An undrawn comment is hidden at the end, then ranked once drawn', JSON.stringify(pending) === '["hidden","99999"]' && afterDraw.slice(0, 2).join() === 'hot,undrawn', JSON.stringify([pending, afterDraw.slice(0, 3)]));
+// With nothing to change in comments, YouTube is left to load them when they are scrolled to.
+await setSettings({ defaultSort: 'top' });
+await l.reload();
+await l.waitForTimeout(800);
+check('Top sort and copies off: comments are not loaded early', await l.evaluate(() => window.loadCalls === 0));
+await setSettings({ defaultSort: 'popular', hideCopies: true });
+await l.close();
+
 // Narrow window: no theater button, so the page must not stay hidden waiting for theater.
 const n = await ctx.newPage();
 n.on('pageerror', e => errors.push(e.message));
